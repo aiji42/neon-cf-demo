@@ -1,30 +1,30 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `wrangler dev src/index.ts` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `wrangler publish src/index.ts --name my-worker` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
-export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	// MY_BUCKET: R2Bucket;
+import { Client } from "@neondatabase/serverless";
+interface Env {
+  DATABASE_URL: string;
 }
 
 export default {
-	async fetch(
-		request: Request,
-		env: Env,
-		ctx: ExecutionContext
-	): Promise<Response> {
-		return new Response("Hello World!");
-	},
+  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const client = new Client(env.DATABASE_URL);
+    await client.connect();
+
+    const { longitude, latitude } = (request.cf ?? {}) as any;
+    const { rows } = await client.query(
+      `
+  select 
+    id_no, name_en, category,
+    st_makepoint($1, $2) <-> location as distance
+  from whc_sites_2021
+  order by distance limit 10`,
+      [longitude, latitude]
+    );
+
+    ctx.waitUntil(client.end()); // this doesn’t hold up the response
+    return new Response(JSON.stringify(rows), {
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+  },
 };
